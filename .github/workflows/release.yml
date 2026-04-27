@@ -70,6 +70,8 @@ jobs:
           mkdir -p "staging/${PACKAGE_NAME}"
           cp build/OpenRiichi.exe "staging/${PACKAGE_NAME}/"
           cp -r bin/Data "staging/${PACKAGE_NAME}/"
+          # Optional mod installers shipped alongside the exe.
+          cp spellground.bat "staging/${PACKAGE_NAME}/"
 
       - name: Bundle dependent DLLs
         run: |
