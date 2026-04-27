@@ -1,0 +1,24 @@
+# ---- Editor / OS -------------------------------------------------------------
+.vscode/
+*.code-workspace
+.DS_Store
+Thumbs.db
+
+# ---- Build / runtime artifacts -----------------------------------------------
+.build/
+build/
+
+# Compiled binaries inside bin/. Keep bin/Data (textures, audio, fonts).
+bin/*
+!bin/Data/
+bin/Data/Fonts/.uuid
+
+# Vala compiles to C; emitted by the build, never hand-edited.
+*.c
+*.o
+
+# Shaders in this project are dynamically built by the engine, not source code.
+*.shader
+
+# ---- Backups produced by add_tile_numbers.py ---------------------------------
+*.png.bak

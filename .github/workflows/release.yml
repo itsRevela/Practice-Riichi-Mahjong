@@ -1,0 +1,195 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PACKAGE_NAME: Practice-Riichi-Mahjong-Win64
+
+jobs:
+  build:
+    name: Build (Windows MSYS2)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            git
+            mingw-w64-x86_64-vala
+            mingw-w64-x86_64-pkg-config
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-meson
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-libgee
+            mingw-w64-x86_64-gtk3
+            mingw-w64-x86_64-glew
+            mingw-w64-x86_64-SDL2
+            mingw-w64-x86_64-SDL2_image
+            mingw-w64-x86_64-SDL2_mixer
+            mingw-w64-x86_64-pango
+
+      - name: Configure
+        run: meson setup build -Dbuildtype=release
+
+      - name: Build
+        run: ninja -C build
+
+      - name: Stage runtime files
+        run: |
+          set -euo pipefail
+          rm -rf staging
+          mkdir -p "staging/${PACKAGE_NAME}"
+          cp build/OpenRiichi.exe "staging/${PACKAGE_NAME}/"
+          cp -r bin/Data "staging/${PACKAGE_NAME}/"
+
+      - name: Bundle dependent DLLs
+        run: |
+          set -euo pipefail
+          cd "staging/${PACKAGE_NAME}"
+
+          # Walk the import table of OpenRiichi.exe and every DLL we end up
+          # copying in, recursively. Anything resolvable under /mingw64/bin
+          # (the MSYS2 MinGW64 prefix) is part of our redistributable runtime.
+          # Native Windows system DLLs (KERNEL32, USER32, etc.) won't exist
+          # there, so they're skipped by design.
+          declare -A copied
+          queue=("OpenRiichi.exe")
+          while [ ${#queue[@]} -gt 0 ]; do
+            current="${queue[0]}"
+            queue=("${queue[@]:1}")
+            [ -z "$current" ] && continue
+            while IFS= read -r dep; do
+              [ -z "$dep" ] && continue
+              key=$(echo "$dep" | tr '[:upper:]' '[:lower:]')
+              [ -n "${copied[$key]:-}" ] && continue
+              src="/mingw64/bin/$dep"
+              if [ -f "$src" ]; then
+                cp "$src" .
+                copied[$key]=1
+                queue+=("$dep")
+              fi
+            done < <(objdump -p "$current" 2>/dev/null | awk '/DLL Name:/ {print $3}')
+          done
+
+          echo "Bundled $(ls *.dll 2>/dev/null | wc -l) DLLs alongside OpenRiichi.exe"
+
+      - name: Zip release
+        shell: pwsh
+        run: |
+          $top = "${env:PACKAGE_NAME}"
+          $zip = "${top}.zip"
+          if (Test-Path $zip) { Remove-Item $zip }
+          Compress-Archive -Path "staging/${top}" -DestinationPath $zip -CompressionLevel Optimal
+          Get-Item $zip | Select-Object Name, Length
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: build
+          path: ${{ env.PACKAGE_NAME }}.zip
+          if-no-files-found: error
+
+  release:
+    name: Sign and Publish
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: build
+          path: artifacts
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: artifacts/${{ env.PACKAGE_NAME }}.zip
+
+      - name: Import GPG key
+        uses: crazy-max/ghaction-import-gpg@v6
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.GPG_PASSPHRASE }}
+          git_user_signingkey: true
+          git_tag_gpgsign: true
+
+      - name: Sign artifact
+        env:
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          cd artifacts
+          gpg --batch --yes \
+              --pinentry-mode loopback \
+              --passphrase "$GPG_PASSPHRASE" \
+              --armor \
+              --output "${PACKAGE_NAME}.zip.asc" \
+              --detach-sign "${PACKAGE_NAME}.zip"
+          gpg --verify "${PACKAGE_NAME}.zip.asc" "${PACKAGE_NAME}.zip"
+          ls -la
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          cat > notes.md <<'NOTES'
+          # Practice Riichi Mahjong — ${{ github.ref_name }}
+
+          Windows64 build of the Tenpai Speedrun training client.
+
+          ## Install
+
+          1. Download `Practice-Riichi-Mahjong-Win64.zip`.
+          2. Extract anywhere you like.
+          3. Run `OpenRiichi.exe` and pick **Singleplayer → Tenpai Speedrun**.
+
+          ## Verify the download (optional)
+
+          The zip is signed with the release GPG key
+          `F3AC289718B7AC5DBBF3821DDC969E4797BBDBD4` (`Revela (releases) <rexmarek@gmail.com>`).
+          To verify with `gpg`:
+
+          ```bash
+          gpg --verify Practice-Riichi-Mahjong-Win64.zip.asc Practice-Riichi-Mahjong-Win64.zip
+          ```
+
+          The build also publishes a GitHub-native [build provenance attestation](https://docs.github.com/en/actions/security-guides/using-artifact-attestations-to-establish-provenance-for-builds) which can be checked with the `gh` CLI:
+
+          ```bash
+          gh attestation verify Practice-Riichi-Mahjong-Win64.zip --repo ${{ github.repository }}
+          ```
+          NOTES
+
+          gh release create "${{ github.ref_name }}" \
+            "artifacts/${PACKAGE_NAME}.zip" \
+            "artifacts/${PACKAGE_NAME}.zip.asc" \
+            --title "${{ github.ref_name }}" \
+            --notes-file notes.md
