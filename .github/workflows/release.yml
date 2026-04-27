@@ -1,10 +1,17 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v0.1.0). Must not already exist on the remote.'
+        required: true
+        type: string
+      publish:
+        description: 'Publish a GitHub Release after the build (untick to dry-run the build only).'
+        required: true
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -12,7 +19,7 @@ permissions:
   attestations: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.tag }}
   cancel-in-progress: false
 
 env:
@@ -115,11 +122,23 @@ jobs:
     name: Sign and Publish
     needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
+    if: ${{ inputs.publish }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Refuse if tag already exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if gh api "repos/${{ github.repository }}/git/refs/tags/${{ inputs.tag }}" >/dev/null 2>&1; then
+            echo "::error::Tag '${{ inputs.tag }}' already exists on the remote. Pick a new tag name."
+            exit 1
+          fi
 
       - name: Download build artifact
         uses: actions/download-artifact@v7
@@ -155,41 +174,48 @@ jobs:
           gpg --verify "${PACKAGE_NAME}.zip.asc" "${PACKAGE_NAME}.zip"
           ls -la
 
+      - name: Create signed tag
+        run: |
+          set -euo pipefail
+          git tag -s "${{ inputs.tag }}" -m "Release ${{ inputs.tag }}"
+          git push origin "${{ inputs.tag }}"
+
       - name: Create release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
-          cat > notes.md <<'NOTES'
-          # Practice Riichi Mahjong — ${{ github.ref_name }}
+          cat > notes.md <<NOTES
+          # Practice Riichi Mahjong ${TAG}
 
           Windows64 build of the Tenpai Speedrun training client.
 
           ## Install
 
-          1. Download `Practice-Riichi-Mahjong-Win64.zip`.
+          1. Download \`Practice-Riichi-Mahjong-Win64.zip\`.
           2. Extract anywhere you like.
-          3. Run `OpenRiichi.exe` and pick **Singleplayer → Tenpai Speedrun**.
+          3. Run \`OpenRiichi.exe\` and pick **Singleplayer → Tenpai Speedrun**.
 
           ## Verify the download (optional)
 
           The zip is signed with the release GPG key
-          `F3AC289718B7AC5DBBF3821DDC969E4797BBDBD4` (`Revela (releases) <rexmarek@gmail.com>`).
-          To verify with `gpg`:
+          \`F3AC289718B7AC5DBBF3821DDC969E4797BBDBD4\` (\`Revela (releases) <rexmarek@gmail.com>\`).
+          To verify with \`gpg\`:
 
-          ```bash
+          \`\`\`bash
           gpg --verify Practice-Riichi-Mahjong-Win64.zip.asc Practice-Riichi-Mahjong-Win64.zip
-          ```
+          \`\`\`
 
-          The build also publishes a GitHub-native [build provenance attestation](https://docs.github.com/en/actions/security-guides/using-artifact-attestations-to-establish-provenance-for-builds) which can be checked with the `gh` CLI:
+          The build also publishes a GitHub-native [build provenance attestation](https://docs.github.com/en/actions/security-guides/using-artifact-attestations-to-establish-provenance-for-builds) which can be checked with the \`gh\` CLI:
 
-          ```bash
+          \`\`\`bash
           gh attestation verify Practice-Riichi-Mahjong-Win64.zip --repo ${{ github.repository }}
-          ```
+          \`\`\`
           NOTES
 
-          gh release create "${{ github.ref_name }}" \
+          gh release create "${TAG}" \
             "artifacts/${PACKAGE_NAME}.zip" \
             "artifacts/${PACKAGE_NAME}.zip.asc" \
-            --title "${{ github.ref_name }}" \
+            --title "${TAG}" \
             --notes-file notes.md
