@@ -2,7 +2,7 @@
 
 A focused training tool for building faster, sharper riichi mahjong hands.
 
-The single feature here: a **Tenpai Speedrun** mode that drops you into a solo loop of drawing and discarding until you reach tenpai, then times the run, counts the draws, and tracks your stats over time. It's built on top of [FluffyStuff/OpenRiichi](https://github.com/FluffyStuff/OpenRiichi) so the tile rendering, sound design, and rules engine are the same as a real client; only the surrounding mode is new.
+The focused feature here: a **Tenpai Speedrun** mode that drops you into a solo loop of drawing and discarding until you reach tenpai, then times the run, counts the draws, and tracks your stats over time. It's built on top of [FluffyStuff/OpenRiichi](https://github.com/FluffyStuff/OpenRiichi) so the tile rendering, sound design, and rules engine are the same as a real client; only the Tenpai Speedrun mode is new (along with some critical bug fixes to the overall application).
 
 ---
 
