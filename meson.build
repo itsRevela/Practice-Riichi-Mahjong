@@ -101,7 +101,19 @@ sources = files(
 
 includes = [include_directories('include'), engine_includes]
 
-executable('OpenRiichi', sources,
+# On Windows, compile the .rc into the executable so File Explorer, the
+# taskbar, and Alt-Tab all pick up the embedded application icon. The
+# resource file references icon.ico (sibling) which is checked in.
+extra_sources = []
+if host_machine.system() == 'windows'
+    windows_mod = import('windows')
+    extra_sources += windows_mod.compile_resources(
+        'include/openriichi.rc',
+        depend_files: files('include/icon.ico'),
+    )
+endif
+
+executable('OpenRiichi', sources + extra_sources,
     dependencies: dependencies,
     include_directories: includes,
     gui_app: true,
