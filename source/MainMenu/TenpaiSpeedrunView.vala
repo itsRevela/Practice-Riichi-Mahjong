@@ -19,6 +19,7 @@ class TenpaiSpeedrunView : MenuSubView
     private bool drew_tile = false;
     private Tile? drawn_tile = null;
     private int draw_count = 0;
+    private bool run_succeeded = true;
     private Wind round_wind = Wind.EAST;
     private Wind seat_wind = Wind.EAST;
     private bool timer_running = false;
@@ -190,6 +191,7 @@ class TenpaiSpeedrunView : MenuSubView
         drew_tile = false;
         drawn_tile = null;
         draw_count = 0;
+        run_succeeded = true;
         timer_running = false;
         timer_started = false;
         current_elapsed = 0;
@@ -344,8 +346,16 @@ class TenpaiSpeedrunView : MenuSubView
         if (phase != Phase.PLAYING || drew_tile)
             return;
 
+        // Wall exhaustion ends the run as a 流局-style failure. We do NOT
+        // reshuffle a fresh 136-tile wall on top of the existing hand and
+        // discards: that would create more than 4 copies of some tile types
+        // in play, which breaks both riichi rules and tenpai-detection
+        // integrity.
         if (wall.size == 0)
-            wall.add_all(build_shuffled_wall());
+        {
+            finish_run_exhausted();
+            return;
+        }
 
         Tile drawn = wall.remove_at(0);
         hand.add(drawn);
@@ -405,6 +415,7 @@ class TenpaiSpeedrunView : MenuSubView
         timer_running = false;
         final_elapsed = current_elapsed;
         phase = Phase.RESULTS;
+        run_succeeded = true;
 
         // Refresh the field so it shows the final 13-tile tenpai hand
         // (the just-discarded tile is gone, drawn-tile slot is empty).
@@ -412,7 +423,7 @@ class TenpaiSpeedrunView : MenuSubView
 
         ArrayList<Tile> waits = compute_wait_tiles(hand);
         int wait_count = waits.size;
-        string winning_tile = wait_count > 0 ? TILE_TYPE_TO_STRING(waits[0].tile_type) : "—";
+        string winning_tile = wait_count > 0 ? TILE_TYPE_TO_STRING(waits[0].tile_type) : "-";
         bool furiten = check_furiten(waits, discards);
 
         TenpaiSpeedrunRecord record = new TenpaiSpeedrunRecord(
@@ -426,6 +437,23 @@ class TenpaiSpeedrunView : MenuSubView
         stats.add_record(record);
 
         build_results_ui(record, waits);
+    }
+
+    // Called when the wall is empty and the player still hasn't reached
+    // tenpai. The run is recorded as a failure (not saved to stats so
+    // averages stay clean) and a "Wall Exhausted" screen is shown.
+    private void finish_run_exhausted()
+    {
+        timer_running = false;
+        final_elapsed = current_elapsed;
+        phase = Phase.RESULTS;
+        run_succeeded = false;
+
+        // No drawn tile to merge back; just show the resting hand as it
+        // stands at exhaustion.
+        refresh_tiles();
+
+        build_failure_results_ui();
     }
 
     // Self-furiten: any of the player's wait tile types appears in their own
@@ -453,7 +481,10 @@ class TenpaiSpeedrunView : MenuSubView
         return waits;
     }
 
-    private void build_results_ui(TenpaiSpeedrunRecord record, ArrayList<Tile> waits)
+    // Hide playing-screen chrome, dock the tile field at the bottom so the
+    // hand stays visible, swap the bottom-row buttons, and create the
+    // results_container. Returns the starting y for content labels.
+    private float setup_results_chrome()
     {
         if (round_wind_label != null) round_wind_label.visible = false;
         if (seat_wind_label != null) seat_wind_label.visible = false;
@@ -465,9 +496,6 @@ class TenpaiSpeedrunView : MenuSubView
         // Discard pile + header stay visible so the player can review which
         // tiles they discarded and verify the furiten flag against them.
 
-        // Keep the final tenpai hand visible at the bottom so the player can
-        // see the shape that earned the score; the stats text fills the area
-        // above it.
         if (tile_field != null)
         {
             tile_field.visible = true;
@@ -485,7 +513,12 @@ class TenpaiSpeedrunView : MenuSubView
         add_child(results_container);
         results_container.resize_style = ResizeStyle.RELATIVE;
 
-        float y = -(top_offset + 30);
+        return -(top_offset + 30);
+    }
+
+    private void build_results_ui(TenpaiSpeedrunRecord record, ArrayList<Tile> waits)
+    {
+        float y = setup_results_chrome();
         const float line_height = 32;
 
         y = add_results_label(results_container, "Tenpai!", 42, y, line_height + 18, Color(1, 0.95f, 0.4f, 1));
@@ -494,7 +527,7 @@ class TenpaiSpeedrunView : MenuSubView
         if (record.is_furiten)
         {
             y = add_results_label(results_container,
-                "(Furiten — your wait was already in your discards)",
+                "(Furiten: your wait was already in your discards)",
                 22, y, line_height - 4, Color(1, 0.45f, 0.45f, 1));
         }
 
@@ -562,10 +595,40 @@ class TenpaiSpeedrunView : MenuSubView
         update_text();
     }
 
+    // Drawn when the player exhausts the wall before reaching tenpai.
+    // Intentionally minimal: shows the failure clearly and the run is NOT
+    // saved to stats so the rolling averages stay honest about real tenpai
+    // attempts.
+    private void build_failure_results_ui()
+    {
+        float y = setup_results_chrome();
+        const float line_height = 32;
+
+        y = add_results_label(results_container, "Wall Exhausted", 42, y, line_height + 18,
+            Color(1, 0.45f, 0.45f, 1));
+        y -= 10;
+
+        y = add_results_label(results_container,
+            "You drew all %d tiles without reaching tenpai.".printf(draw_count),
+            24, y, line_height, Color.white());
+
+        y -= 8;
+        y = add_results_label(results_container,
+            "Time: %.2fs    Discards: %d".printf(final_elapsed, discards.size),
+            22, y, line_height, Color(0.85f, 0.85f, 0.85f, 1));
+
+        y -= 16;
+        y = add_results_label(results_container,
+            "(This run was not recorded; rolling stats only count tenpai finishes.)",
+            18, y, line_height - 4, Color(0.7f, 0.7f, 0.7f, 1));
+
+        update_text();
+    }
+
     private static string format_wait_summary(ArrayList<Tile> waits)
     {
         if (waits.size == 0)
-            return "—";
+            return "-";
 
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < waits.size; i++)
