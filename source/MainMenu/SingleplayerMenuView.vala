@@ -32,6 +32,12 @@ class SingleplayerMenuView : MenuSubView
         load_sub_view(view);
     }
 
+    private void point_calc_practice_clicked()
+    {
+        PointCalcPracticeView view = new PointCalcPracticeView();
+        load_sub_view(view);
+    }
+
     protected override ArrayList<MenuTextButton>? get_main_buttons()
     {
         ArrayList<MenuTextButton> buttons = new ArrayList<MenuTextButton>();
@@ -43,6 +49,10 @@ class SingleplayerMenuView : MenuSubView
         MenuTextButton speedrun_button = new MenuTextButton("MenuButtonBig", "Tenpai Speedrun");
         speedrun_button.clicked.connect(tenpai_speedrun_clicked);
         buttons.add(speedrun_button);
+
+        MenuTextButton point_calc_button = new MenuTextButton("MenuButtonBig", "Point Calculation Practice");
+        point_calc_button.clicked.connect(point_calc_practice_clicked);
+        buttons.add(point_calc_button);
 
         MenuTextButton log_button = new MenuTextButton("MenuButtonBig", "Load Log");
         log_button.clicked.connect(load_log_clicked);

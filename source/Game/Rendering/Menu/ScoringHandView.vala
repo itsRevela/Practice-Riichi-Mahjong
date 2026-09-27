@@ -8,7 +8,8 @@ public class ScoringHandView : View3D
     private ArrayList<RenderTile> tiles = new ArrayList<RenderTile>();
     private float width = 1;
 
-    public ScoringHandView(GameRenderContext context, Scoring score)
+    // context is unused; nullable so views outside a game (e.g. practice modes) can reuse this
+    public ScoringHandView(GameRenderContext? context, Scoring score)
     {
         this.score = score;
         resize_style = ResizeStyle.ABSOLUTE;

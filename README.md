@@ -2,7 +2,12 @@
 
 A focused training tool for building faster, sharper riichi mahjong hands.
 
-This is a fork of the OpenRiichi project that features a **Tenpai Speedrun** mode that drops you into a solo loop of drawing and discarding until you reach tenpai, then times the run, counts the draws, and tracks your stats over time. It's built on top of [FluffyStuff/OpenRiichi](https://github.com/FluffyStuff/OpenRiichi) so the tile rendering, sound design, and rules engine are the same as a real client; only the Tenpai Speedrun mode is new (along with some critical bug fixes to the overall application).
+This is a fork of the OpenRiichi project with two training modes:
+
+- **Tenpai Speedrun** drops you into a solo loop of drawing and discarding until you reach tenpai, then times the run, counts the draws, and tracks your stats over time.
+- **Point Calculation Practice** deals random winning hands and asks what each one pays, then walks you through the han, fu and payment calculation.
+
+It's built on top of [FluffyStuff/OpenRiichi](https://github.com/FluffyStuff/OpenRiichi) so the tile rendering, sound design, and rules engine are the same as a real client; only the training modes are new (along with some critical bug fixes to the overall application, including standard-rules fixes to fu scoring).
 
 ---
 
@@ -45,6 +50,29 @@ The results screen surfaces:
 | Habits | avg wait-tile count, single-wait finish %, most common finishing wait tile, furiten finish % |
 
 Scores persist to `tenpai_speedrun.scores` in your user config directory (`%APPDATA%\OpenRiichi\` on Windows, `~/.config/OpenRiichi/` on Linux/macOS), so progress carries across sessions.
+
+---
+
+## Point Calculation Practice
+
+Scoring is the part of riichi most players learn last, and it matters every hand: whether to push for one more han, whether a cheap ron is worth taking, and whether the scoreboard is right. This mode drills it with endless random hands.
+
+1. On the setup screen, choose whether **Hints** are on, then press **Start**.
+2. Each round shows a winning hand with everything you need to score it: round and seat wind (and whether you're the dealer), ron or tsumo, riichi, the dora indicators, the ura dora indicators (revealed only for riichi hands), and any situational yaku (ippatsu, haitei/houtei, rinshan, chankan). The winning tile sits apart from the hand, and any calls (chii, pon, open/closed/added kans) are shown on the right.
+3. Enter the payment the way it's announced at the table:
+
+   | Win | What you enter | Example |
+   | --- | --- | --- |
+   | Ron | the one payment from the discarder | `3900` |
+   | Dealer tsumo | what each player pays | `2000` all |
+   | Non-dealer tsumo | what each non-dealer pays, then what the dealer pays | `1000` / `2000` |
+
+4. Press **Submit** (or Enter). You'll see whether you were right, your answer next to the correct one, and the full calculation: each yaku and dora with its han, the itemised fu (base, closed ron or tsumo, each triplet or kan, the wait, the pair, rounding), the basic points, and each payment.
+5. Press **Next Hand** for another hand, or **Main Menu** to stop.
+
+With hints on, a **Hint** button during the question shows the same calculation before you answer.
+
+Hands are dealt from a real 136-tile set with one red five per suit, so tile counts are always legal. They're scored by the game's own rules engine, using standard rules: no kiriage mangan, a double-wind pair is 4 fu, and open tanyao counts.
 
 ---
 
@@ -101,13 +129,21 @@ ninja -C build
 
 The `--search-directory` flag points the executable at the bundled `bin/Data/` so it can find textures, sounds, and models. On Windows, replace `./build/OpenRiichi` with `build\OpenRiichi.exe`.
 
-Once the game loads: **Singleplayer → Tenpai Speedrun**.
+Once the game loads: **Singleplayer → Tenpai Speedrun** or **Singleplayer → Point Calculation Practice**.
+
+### Running the tests
+
+The rules engine (hand scoring) and the practice-mode logic have unit tests in `source/Tests/`, built as a separate `OpenRiichiTests` executable:
+
+```bash
+meson test -C build
+```
 
 ---
 
 ## Credits
 
-The entire mahjong client (renderer, audio, rules, scoring, networking, all assets) is the work of [FluffyStuff](https://github.com/FluffyStuff) and contributors on [OpenRiichi](https://github.com/FluffyStuff/OpenRiichi), with its [Engine](https://github.com/FluffyStuff/Engine) library. This fork just adds the Tenpai Speedrun mode on top.
+The entire mahjong client (renderer, audio, rules, scoring, networking, all assets) is the work of [FluffyStuff](https://github.com/FluffyStuff) and contributors on [OpenRiichi](https://github.com/FluffyStuff/OpenRiichi), with its [Engine](https://github.com/FluffyStuff/Engine) library. This fork adds the Tenpai Speedrun and Point Calculation Practice modes on top.
 
 ## License
 

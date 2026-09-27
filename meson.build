@@ -25,6 +25,9 @@ sources = files(
     'source/Game/Logic/IGameConnection.vala',
     'source/Game/Logic/JsonStateExport.vala',
     'source/Game/Logic/LobbyMessages.vala',
+    'source/Game/Logic/PointCalcExplanation.vala',
+    'source/Game/Logic/PointCalcHandGenerator.vala',
+    'source/Game/Logic/PointCalcQuestion.vala',
     'source/Game/Logic/RoundLog.vala',
     'source/Game/Logic/RoundState.vala',
     'source/Game/Logic/ServerAction.vala',
@@ -89,6 +92,8 @@ sources = files(
     'source/MainMenu/MultiplayerMenuView.vala',
     'source/MainMenu/OptionItemControl.vala',
     'source/MainMenu/OptionsMenuView.vala',
+    'source/MainMenu/PointCalcCalculationView.vala',
+    'source/MainMenu/PointCalcPracticeView.vala',
     'source/MainMenu/SelectGameLogMenuView.vala',
     'source/MainMenu/ServerMenuView.vala',
     'source/MainMenu/ServerPlayerFieldView.vala',
@@ -120,3 +125,23 @@ executable('OpenRiichi', sources + extra_sources,
     install: true
 )
 install_subdir('bin/Data', install_dir: dataDir)
+
+# Unit tests for the rules engine. A separate console executable that is
+# neither installed nor packaged. Run with: meson test -C build
+test_sources = files(
+    'source/Game/Logic/PointCalcExplanation.vala',
+    'source/Game/Logic/PointCalcHandGenerator.vala',
+    'source/Game/Logic/PointCalcQuestion.vala',
+    'source/Game/Logic/Tile.vala',
+    'source/Game/Logic/TileRules.vala',
+    'source/Tests/PointCalcTests.vala',
+    'source/Tests/ScoringTests.vala',
+    'source/Tests/TestHelpers.vala',
+    'source/Tests/TestMain.vala',
+) + engine_sources
+
+tests_exe = executable('OpenRiichiTests', test_sources,
+    dependencies: dependencies,
+    include_directories: includes,
+)
+test('rules', tests_exe, timeout: 120)

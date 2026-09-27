@@ -33,36 +33,31 @@ public class TileRules
 
         Scoring? top = null;
 
+        // A reading only fixes how the tiles group into melds. The winning tile
+        // may still have completed any concealed group of its type, and the
+        // winner is entitled to the most valuable interpretation, so every
+        // placement is scored and the best one kept.
         foreach (HandReading reading in readings)
         {
-            if (round.ron)
+            foreach (WinPlacement placement in win_placements(reading, round))
             {
-                foreach (TileMeld meld in reading.melds)
-                {
-                    if (meld.tile_1.ID == round.win_tile.ID ||
-                        meld.tile_2.ID == round.win_tile.ID ||
-                        meld.tile_3.ID == round.win_tile.ID ||
-                        (meld.tile_4 != null && meld.tile_4.ID == round.win_tile.ID))
-                        meld.is_closed = false;
-                }
-            }
+                ArrayList<Yaku> yaku = Yaku.get_yaku(player, round, placement.reading);
+                Scoring score = new Scoring(round, player, placement.reading, yaku, placement.wait);
 
-            ArrayList<Yaku> yaku = Yaku.get_yaku(player, round, reading);
-            Scoring score = new Scoring(round, player, reading, yaku);
-
-            if
-            (
-                top == null ||
+                if
                 (
-                    !(top.has_valid_yaku() && !score.has_valid_yaku()) &&
+                    top == null ||
                     (
-                        (score.has_valid_yaku() && !top.has_valid_yaku()) ||
-                        (score.total_points > top.total_points)
+                        !(top.has_valid_yaku() && !score.has_valid_yaku()) &&
+                        (
+                            (score.has_valid_yaku() && !top.has_valid_yaku()) ||
+                            (score.total_points > top.total_points)
+                        )
                     )
                 )
-            )
-            {
-                top = score;
+                {
+                    top = score;
+                }
             }
         }
 
@@ -70,6 +65,106 @@ public class TileRules
             top = new Scoring.invalid();
 
         return top;
+    }
+
+    // A hand stays closed (menzen) as long as its only calls are closed kans
+    public static bool is_closed_hand(ArrayList<RoundStateCall> calls)
+    {
+        foreach (RoundStateCall call in calls)
+            if (call.call_type != RoundStateCall.CallType.CLOSED_KAN)
+                return false;
+
+        return true;
+    }
+
+    private class WinPlacement
+    {
+        public WinPlacement(HandReading reading, WaitPattern wait)
+        {
+            this.reading = reading;
+            this.wait = wait;
+        }
+
+        public HandReading reading { get; private set; }
+        public WaitPattern wait { get; private set; }
+    }
+
+    // Every way the winning tile can complete a concealed group in this reading
+    private static ArrayList<WinPlacement> win_placements(HandReading reading, RoundStateContext round)
+    {
+        ArrayList<WinPlacement> placements = new ArrayList<WinPlacement>();
+        TileType win = round.win_tile.tile_type;
+
+        if (reading.is_kokushi)
+        {
+            placements.add(new WinPlacement(reading, WaitPattern.NONE));
+            return placements;
+        }
+
+        if (reading.pairs.size == 7)
+        {
+            placements.add(new WinPlacement(reading, WaitPattern.TANKI));
+            return placements;
+        }
+
+        for (int i = 0; i < reading.melds.size; i++)
+        {
+            TileMeld meld = reading.melds[i];
+
+            // Called melds and kans were already complete before the winning tile
+            if (!meld.is_closed || meld.is_kan)
+                continue;
+
+            WaitPattern wait = meld_wait(meld, win);
+            if (wait == WaitPattern.NONE)
+                continue;
+
+            // A triplet completed by ron counts as an open triplet
+            HandReading r = round.ron && meld.is_triplet ? reading_with_open_meld(reading, i) : reading;
+            placements.add(new WinPlacement(r, wait));
+        }
+
+        if (reading.pairs[0].tile_1.tile_type == win)
+            placements.add(new WinPlacement(reading, WaitPattern.TANKI));
+
+        if (placements.size == 0)
+        {
+            warning("Winning tile %s does not complete any concealed group", TILE_TYPE_TO_STRING(win));
+            placements.add(new WinPlacement(reading, WaitPattern.NONE));
+        }
+
+        return placements;
+    }
+
+    private static WaitPattern meld_wait(TileMeld meld, TileType win)
+    {
+        if (meld.is_triplet)
+            return meld.tile_1.tile_type == win ? WaitPattern.SHANPON : WaitPattern.NONE;
+
+        // Sequence tiles are sorted from low to high
+        if (meld.tile_2.tile_type == win)
+            return WaitPattern.KANCHAN;
+        if (meld.tile_1.tile_type == win)
+            return meld.tile_3.is_terminal_tile() ? WaitPattern.PENCHAN : WaitPattern.RYANMEN;
+        if (meld.tile_3.tile_type == win)
+            return meld.tile_1.is_terminal_tile() ? WaitPattern.PENCHAN : WaitPattern.RYANMEN;
+
+        return WaitPattern.NONE;
+    }
+
+    private static HandReading reading_with_open_meld(HandReading reading, int index)
+    {
+        ArrayList<TileMeld> melds = new ArrayList<TileMeld>();
+
+        for (int i = 0; i < reading.melds.size; i++)
+        {
+            TileMeld meld = reading.melds[i];
+            if (i == index)
+                meld = new TileMeld(meld.tile_1, meld.tile_2, meld.tile_3, false);
+            melds.add(meld);
+        }
+
+        return new HandReading(melds, reading.pairs[0]);
     }
 
     public static bool can_late_kan(ArrayList<Tile> hand, ArrayList<RoundStateCall>? calls)
@@ -1197,13 +1292,14 @@ public class TilePair : Object
 
 public class Scoring : Object
 {
-    public Scoring(RoundStateContext round, PlayerStateContext player, HandReading hand, ArrayList<Yaku> yaku)
+    public Scoring(RoundStateContext round, PlayerStateContext player, HandReading hand, ArrayList<Yaku> yaku, WaitPattern wait_pattern)
     {
         valid = true;
         this.hand = hand;
         this.round = round;
         this.player = player;
         this.yaku = yaku;
+        this.wait_pattern = wait_pattern;
         ron = round.ron;
         dealer = player.dealer;
         calculate_fu();
@@ -1255,7 +1351,6 @@ public class Scoring : Object
         if (aka_dora > 0)
             yaku.add(new Yaku(YakuType.AKA_DORA, aka_dora, 0));
 
-        int basic_points;
         if (yakuman > 0)
         {
             basic_points = 8000 * yakuman;
@@ -1335,6 +1430,10 @@ public class Scoring : Object
         total_points = 0;
         han = 0;
         fu = 0;
+        raw_fu = 0;
+        fu_components = new ArrayList<FuComponent>();
+        wait_pattern = WaitPattern.NONE;
+        basic_points = 0;
         yakuman = 0;
         dora = false;
         ura_dora = false;
@@ -1350,6 +1449,10 @@ public class Scoring : Object
         this.dealer = dealer;
         han = 5;
         fu = 0;
+        raw_fu = 0;
+        fu_components = new ArrayList<FuComponent>();
+        wait_pattern = WaitPattern.NONE;
+        basic_points = 2000;
         yakuman = 0;
         ron_points = 0;
         dora = false;
@@ -1381,99 +1484,81 @@ public class Scoring : Object
 
     private void calculate_fu()
     {
+        raw_fu = 0;
+        fu_components = new ArrayList<FuComponent>();
+
         // Chiitoi
         if (hand.pairs.size == 7)
         {
-            fu = 25;
+            add_fu(FuSource.CHIITOI, 25, null);
+            fu = raw_fu;
             return;
         }
 
+        // Yakuman only, so fu never affects the score
         if (hand.is_kokushi)
         {
-            fu = 20;
+            raw_fu = fu = 20;
             return;
         }
 
-        fu = 0;
+        bool closed = TileRules.is_closed_hand(player.calls);
 
-        WaitType wait = WaitType.NONE;
-        Tile win_tile = round.win_tile;
+        add_fu(FuSource.BASE, 20, null);
+
+        // Fu from melds, wait and pair. A closed hand with none of these and a ryanmen wait is pinfu.
+        int hand_fu = 0;
 
         foreach (TileMeld meld in hand.melds)
         {
-            if (meld.is_triplet)
-            {
-                int f = 2;
-                if (meld.is_closed)
-                    f *= 2;
-                if (meld.is_kan)
-                    f *= 4;
-                if (meld.tile_1.is_honor_tile() || meld.tile_1.is_terminal_tile())
-                    f *= 2;
+            if (!meld.is_triplet)
+                continue;
 
-                fu += f;
-            }
+            int f = 2;
+            if (meld.is_closed)
+                f *= 2;
+            if (meld.is_kan)
+                f *= 4;
+            if (meld.tile_1.is_honor_tile() || meld.tile_1.is_terminal_tile())
+                f *= 2;
 
-            if (wait != WaitType.AMBIGUOUS && (meld.tile_1.tile_type == win_tile.tile_type || meld.tile_1.tile_type == win_tile.tile_type || meld.tile_3.tile_type == win_tile.tile_type))
-            {
-                WaitType w;
-                if (meld.is_triplet)
-                    w = WaitType.CLOSED;
-                else if (meld.tile_2.tile_type == win_tile.tile_type)
-                    w = WaitType.CLOSED;
-                else if (meld.tile_1.tile_type == win_tile.tile_type && meld.tile_3.is_terminal_tile())
-                    w = WaitType.CLOSED;
-                else if (meld.tile_3.tile_type == win_tile.tile_type && meld.tile_1.is_terminal_tile())
-                    w = WaitType.CLOSED;
-                else
-                    w = WaitType.OPEN;
-
-                if ((w == WaitType.OPEN && wait == WaitType.CLOSED) ||
-                    (w == WaitType.CLOSED && wait == WaitType.OPEN))
-                    wait = WaitType.AMBIGUOUS;
-                else
-                    wait = w;
-            }
+            hand_fu += add_fu(FuSource.MELD, f, meld);
         }
 
-        if (wait == WaitType.CLOSED || wait == WaitType.NONE) // None would mean a pair wait
-            fu += 2;
+        if (wait_pattern == WaitPattern.KANCHAN || wait_pattern == WaitPattern.PENCHAN || wait_pattern == WaitPattern.TANKI)
+            hand_fu += add_fu(FuSource.WAIT, 2, null);
 
         Tile pair_tile = hand.pairs[0].tile_1;
         if (pair_tile.is_dragon_tile())
-            fu += 2;
+            hand_fu += add_fu(FuSource.DRAGON_PAIR, 2, null);
         else
         {
             if (pair_tile.is_wind(round.round_wind))
-                fu += 2;
+                hand_fu += add_fu(FuSource.ROUND_WIND_PAIR, 2, null);
             if (pair_tile.is_wind(player.wind))
-                fu += 2;
+                hand_fu += add_fu(FuSource.SEAT_WIND_PAIR, 2, null);
         }
 
-        bool closed = player.calls.size == 0;
-
-        if (fu == 0)
-        {
-            // Pinfu
-            if (closed)
-                yaku.add(new Yaku(YakuType.PINFU, 1, 0));
-            else
-                fu += 2; // Open pinfu is awarded 2 fu
-        }
-        else
-        {
-            if (!round.ron)
-                fu += 2; // Tsumo is awarded 2 fu
-            if (wait == WaitType.AMBIGUOUS)
-                fu += 2;
-        }
-
-        fu += 20;
+        if (closed && hand_fu == 0 && wait_pattern == WaitPattern.RYANMEN)
+            yaku.add(new Yaku(YakuType.PINFU, 1, 0)); // Pinfu tsumo is not awarded tsumo fu
+        else if (!round.ron)
+            add_fu(FuSource.TSUMO, 2, null);
 
         if (closed && round.ron)
-            fu += 10;
+            add_fu(FuSource.CLOSED_RON, 10, null);
 
-        fu = (fu + 9) / 10 * 10;
+        // An open hand that would score only the base 20 fu counts as 30 fu
+        if (!closed && raw_fu == 20)
+            add_fu(FuSource.OPEN_MINIMUM, 10, null);
+
+        fu = (raw_fu + 9) / 10 * 10;
+    }
+
+    private int add_fu(FuSource source, int amount, TileMeld? meld)
+    {
+        fu_components.add(new FuComponent(source, amount, meld));
+        raw_fu += amount;
+        return amount;
     }
 
     public bool valid { get; private set; }
@@ -1489,6 +1574,10 @@ public class Scoring : Object
     public int total_points { get; private set; }
     public int han { get; private set; }
     public int fu { get; private set; }
+    public int raw_fu { get; private set; } // Fu before rounding up to the next 10
+    public ArrayList<FuComponent> fu_components { get; private set; } // Sums to raw_fu
+    public WaitPattern wait_pattern { get; private set; }
+    public int basic_points { get; private set; } // Before the dealer/ron multipliers and rounding
     public int yakuman { get; private set; }
     public bool dora { get; private set; }
     public bool ura_dora { get; private set; }
@@ -1533,14 +1622,44 @@ public class Scoring : Object
         YAKUMAN,
         NAGASHI_MANGAN
     }
+}
 
-    private enum WaitType
+public enum WaitPattern
+{
+    NONE,
+    RYANMEN, // Two-sided sequence wait
+    KANCHAN, // Wait on the middle tile of a sequence
+    PENCHAN, // Edge wait (12 waiting on 3, 89 waiting on 7)
+    SHANPON, // Two pairs, one of which becomes a triplet
+    TANKI    // Single tile wait for the pair
+}
+
+public enum FuSource
+{
+    BASE,
+    CLOSED_RON,
+    TSUMO,
+    MELD,
+    WAIT,
+    DRAGON_PAIR,
+    ROUND_WIND_PAIR,
+    SEAT_WIND_PAIR,
+    OPEN_MINIMUM,
+    CHIITOI
+}
+
+public class FuComponent : Object
+{
+    public FuComponent(FuSource source, int fu, TileMeld? meld)
     {
-        NONE,
-        AMBIGUOUS,
-        CLOSED,
-        OPEN
+        this.source = source;
+        this.fu = fu;
+        this.meld = meld;
     }
+
+    public FuSource source { get; private set; }
+    public int fu { get; private set; }
+    public TileMeld? meld { get; private set; } // Only set for FuSource.MELD
 }
 
 public class Yaku : Object
@@ -1576,7 +1695,7 @@ public class Yaku : Object
     {
         ArrayList<Yaku> yaku = new ArrayList<Yaku>();
 
-        bool closed_hand = player.calls.size == 0;
+        bool closed_hand = TileRules.is_closed_hand(player.calls);
 
         // Tenhou / Chiihou / Renhou
         if (!round.flow_interrupted && player.first_turn)
