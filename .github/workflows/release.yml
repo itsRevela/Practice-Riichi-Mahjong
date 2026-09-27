@@ -63,6 +63,9 @@ jobs:
       - name: Build
         run: ninja -C build
 
+      - name: Test
+        run: meson test -C build --print-errorlogs
+
       - name: Stage runtime files
         run: |
           set -euo pipefail
@@ -191,13 +194,15 @@ jobs:
           cat > notes.md <<NOTES
           # Practice Riichi Mahjong ${TAG}
 
-          Windows64 build of the Tenpai Speedrun training client.
+          Windows64 build of the Practice Riichi Mahjong training client, with the
+          **Tenpai Speedrun** and **Point Calculation Practice** modes.
+          See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/${TAG}/CHANGELOG.md) for what's new.
 
           ## Install
 
           1. Download \`Practice-Riichi-Mahjong-Win64.zip\`.
           2. Extract anywhere you like.
-          3. Run \`OpenRiichi.exe\` and pick **Singleplayer → Tenpai Speedrun**.
+          3. Run \`OpenRiichi.exe\` and pick **Singleplayer → Tenpai Speedrun** or **Singleplayer → Point Calculation Practice**.
 
           ## Verify the download (optional)
 
